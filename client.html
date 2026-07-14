@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Arnold & Loïc Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<script type="module">
+  // Firebase — même stack que Haulzao (Firestore + Storage)
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import {
+    getStorage, ref, uploadBytes, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // ⚠️ REMPLACE ces valeurs par la config de ton projet Firebase
+  // (crée un nouveau projet ex: "arnold-loic-studio" sur console.firebase.google.com)
+  const firebaseConfig = {
+    apiKey: "TA_CLE_API",
+    authDomain: "TON_PROJET.firebaseapp.com",
+    projectId: "TON_PROJET",
+    storageBucket: "TON_PROJET.appspot.com",
+    messagingSenderId: "TON_ID",
+    appId: "TON_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
+  window.__submitCommande = async function(data, files){
+    const statusEl = document.getElementById('formStatus');
+    try{
+      statusEl.textContent = "Envoi en cours...";
+      statusEl.className = "form-status pending";
+
+      // Upload des photos sources vers Storage
+      const urls = [];
+      for(const file of files){
+        const path = `commandes/${Date.now()}_${file.name}`;
+        const fileRef = ref(storage, path);
+        await uploadBytes(fileRef, file);
+        const url = await getDownloadURL(fileRef);
+        urls.push(url);
+      }
+
+      // Écriture de la commande dans Firestore
+      await addDoc(collection(db, "commandes"), {
+        nom: data.nom,
+        contact: data.contact,
+        type: data.type,
+        description: data.description,
+        delai: data.delai,
+        photos: urls,
+        statut: "nouveau",
+        createdAt: serverTimestamp()
+      });
+
+      statusEl.textContent = "✓ Commande envoyée ! Loïc te contacte bientôt sur WhatsApp.";
+      statusEl.className = "form-status success";
+      document.getElementById('commandeForm').reset();
+      document.getElementById('filePreview').innerHTML = "";
+    }catch(err){
+      console.error(err);
+      statusEl.textContent = "Erreur d'envoi — vérifie ta connexion et réessaie.";
+      statusEl.className = "form-status error";
+    }
+  };
+</script>
+<style>
+  :root{
+    --night: #14142B;
+    --night-2: #1E1E42;
+    --sunset: #E8622C;
+    --gold: #F2A65A;
+    --teal: #1F7A6C;
+    --cream: #F5EFE0;
+    --line: rgba(245,239,224,0.14);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background: var(--night);
+    color: var(--cream);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height:100vh;
+  }
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(232,98,44,0.22), transparent 60%),
+      linear-gradient(180deg, var(--night) 0%, var(--night-2) 100%);
+  }
+  header{
+    padding: 26px 20px 16px;
+    text-align:center;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow{
+    font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold); font-weight:500; margin-bottom: 8px;
+  }
+  h1{
+    font-family: 'Anton', sans-serif; font-weight:400;
+    font-size: clamp(30px, 8vw, 44px); line-height: 0.95;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, var(--cream) 40%, var(--gold) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub{
+    margin-top: 10px; font-size: 14px; color: rgba(245,239,224,0.65);
+    max-width: 420px; margin-left:auto; margin-right:auto;
+  }
+  main{ max-width: 480px; margin: 0 auto; padding: 26px 20px 70px; }
+
+  /* Galerie */
+  section.gallery{ margin-bottom: 34px; }
+  .section-title{
+    font-size: 11.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: rgba(245,239,224,0.5); margin-bottom: 14px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-title::after{ content:''; flex:1; height:1px; background: var(--line); }
+  .gallery-grid{
+    display:grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .gallery-card{
+    border-radius: 14px; aspect-ratio: 1;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding: 14px;
+    border: 1px solid var(--line);
+    position:relative; overflow:hidden;
+  }
+  .gallery-card span{ font-weight:700; font-size:14px; z-index:1; }
+  .gallery-card small{ font-size:11px; color:rgba(245,239,224,0.7); z-index:1; margin-top:4px; }
+  .gc-1{ background: linear-gradient(145deg, #E8622C, #7a2f10); }
+  .gc-2{ background: linear-gradient(145deg, #1F7A6C, #103a33); }
+  .gc-3{ background: linear-gradient(145deg, #F2A65A, #8a5420); }
+  .gc-4{ background: linear-gradient(145deg, #4a3a6c, #201533); }
+  .gallery-note{
+    font-size: 11.5px; color: rgba(245,239,224,0.4);
+    text-align:center; margin-top:12px; font-style:italic;
+  }
+
+  /* Formulaire */
+  .field{ margin-bottom: 16px; }
+  label{
+    display:block; font-size: 12.5px; font-weight:700;
+    margin-bottom: 7px; color: rgba(245,239,224,0.85);
+  }
+  input[type=text], input[type=tel], textarea, select{
+    width:100%; padding: 13px 14px; border-radius: 12px;
+    border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.04);
+    color: var(--cream); font-family: inherit; font-size: 14.5px;
+  }
+  select{ appearance:none; }
+  textarea{ resize: vertical; min-height: 80px; }
+  input::placeholder, textarea::placeholder{ color: rgba(245,239,224,0.35); }
+
+  .file-drop{
+    border: 1.5px dashed rgba(245,239,224,0.3);
+    border-radius: 12px; padding: 18px; text-align:center;
+    cursor:pointer; font-size: 13.5px; color: rgba(245,239,224,0.6);
+  }
+  .file-drop input{ display:none; }
+  #filePreview{
+    display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;
+  }
+  #filePreview img{
+    width:56px; height:56px; object-fit:cover; border-radius:8px;
+    border: 1px solid var(--line);
+  }
+
+  button.submit-btn{
+    width:100%; border:none; padding: 16px 12px; border-radius: 12px;
+    font-family: inherit; font-weight:700; font-size: 15px;
+    background: linear-gradient(135deg, var(--sunset), var(--gold));
+    color: var(--night); cursor:pointer; margin-top: 6px;
+  }
+  .form-status{
+    margin-top: 12px; font-size: 13px; text-align:center; min-height: 18px;
+  }
+  .form-status.pending{ color: var(--gold); }
+  .form-status.success{ color: var(--teal); font-weight:700; }
+  .form-status.error{ color: var(--sunset); font-weight:700; }
+
+  footer{
+    text-align:center; padding: 20px; font-size: 11.5px;
+    color: rgba(245,239,224,0.35);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Studio de création</div>
+  <h1>Arnold &amp; Loïc</h1>
+  <p class="sub">Des affiches et portraits sur mesure, faits à la main à partir de tes photos.</p>
+</header>
+
+<main>
+  <section class="gallery">
+    <div class="section-title">Galerie</div>
+    <div class="gallery-grid">
+      <div class="gallery-card gc-1"><span>Événements</span><small>mariages, concerts, matchs</small></div>
+      <div class="gallery-card gc-2"><span>Business</span><small>affiches, promos</small></div>
+      <div class="gallery-card gc-3"><span>Portraits</span><small>famille, souvenirs</small></div>
+      <div class="gallery-card gc-4"><span>Sur mesure</span><small>ton idée</small></div>
+    </div>
+    <p class="gallery-note">Exemples à venir — Loïc ajoute bientôt ses vraies créations ici.</p>
+  </section>
+
+  <section class="order">
+    <div class="section-title">Passer commande</div>
+    <form id="commandeForm" onsubmit="return false;">
+      <div class="field">
+        <label>Ton nom</label>
+        <input type="text" id="nom" placeholder="Ton nom complet" required>
+      </div>
+      <div class="field">
+        <label>Contact WhatsApp</label>
+        <input type="tel" id="contact" placeholder="+257 ..." required>
+      </div>
+      <div class="field">
+        <label>Type de commande</label>
+        <select id="type" required>
+          <option value="">Choisis...</option>
+          <option value="evenement">Événement (mariage, concert, promo)</option>
+          <option value="business">Business (affiche, publicité)</option>
+          <option value="portrait">Portrait / souvenir personnel</option>
+          <option value="autre">Autre / sur mesure</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Décris ton idée</label>
+        <textarea id="description" placeholder="Ambiance voulue, texte à inclure, occasion..." required></textarea>
+      </div>
+      <div class="field">
+        <label>Délai souhaité</label>
+        <select id="delai">
+          <option value="normal">Normal (48-72h)</option>
+          <option value="urgent">Urgent (24h)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Tes photos</label>
+        <label class="file-drop">
+          <input type="file" id="photos" accept="image/*" multiple>
+          Touche pour ajouter tes photos
+        </label>
+        <div id="filePreview"></div>
+      </div>
+
+      <button class="submit-btn" id="submitBtn">Envoyer ma commande</button>
+      <div class="form-status" id="formStatus"></div>
+    </form>
+  </section>
+</main>
+
+<footer>Arnold &amp; Loïc Studio — créations originales, réponse rapide sur WhatsApp</footer>
+
+<script>
+  const photosInput = document.getElementById('photos');
+  const filePreview = document.getElementById('filePreview');
+  let selectedFiles = [];
+
+  photosInput.addEventListener('change', () => {
+    selectedFiles = Array.from(photosInput.files);
+    filePreview.innerHTML = '';
+    selectedFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        filePreview.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+
+  document.getElementById('submitBtn').addEventListener('click', () => {
+    const nom = document.getElementById('nom').value.trim();
+    const contact = document.getElementById('contact').value.trim();
+    const type = document.getElementById('type').value;
+    const description = document.getElementById('description').value.trim();
+    const delai = document.getElementById('delai').value;
+
+    if(!nom || !contact || !type || !description){
+      document.getElementById('formStatus').textContent = "Remplis tous les champs obligatoires.";
+      document.getElementById('formStatus').className = "form-status error";
+      return;
+    }
+
+    window.__submitCommande({ nom, contact, type, description, delai }, selectedFiles);
+  });
+</script>
+
+</body>
+</html>
