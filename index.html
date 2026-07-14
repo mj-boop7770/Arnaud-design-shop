@@ -10,7 +10,7 @@
   // Firebase — Firestore uniquement (données des commandes)
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getFirestore, collection, addDoc, serverTimestamp
+    getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   // Config du projet Firebase Arnold & Loïc (irabaruta-16f22)
@@ -72,10 +72,43 @@
       document.getElementById('filePreview').innerHTML = "";
     }catch(err){
       console.error(err);
-      statusEl.textContent = "Erreur d'envoi — vérifie ta connexion et réessaie.";
+      statusEl.textContent = "Erreur : " + (err.message || "inconnue") + " — réessaie ou change de réseau.";
       statusEl.className = "form-status error";
     }
   };
+
+  const CATEGORIE_INFO = {
+    evenement: { label: "Événements" },
+    business:  { label: "Business" },
+    portrait:  { label: "Portraits" },
+    autre:     { label: "Sur mesure" }
+  };
+
+  function renderGalerie(snap){
+    const grid = document.getElementById('galerieGrid');
+    const note = document.getElementById('galerieNote');
+    if(!grid) return;
+    if(snap.empty){
+      if(note) note.style.display = 'block';
+      return;
+    }
+    if(note) note.style.display = 'none';
+    grid.innerHTML = snap.docs.map(d => {
+      const g = d.data();
+      const info = CATEGORIE_INFO[g.categorie] || CATEGORIE_INFO.autre;
+      return `
+        <div class="gallery-card gallery-photo" style="background-image:url('${g.url}')">
+          <span>${g.titre || ''}</span>
+          <small>${info.label}</small>
+        </div>
+      `;
+    }).join('');
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const q = query(collection(db, "galerie"), orderBy("createdAt", "desc"));
+    onSnapshot(q, renderGalerie, err => console.error(err));
+  });
 </script>
 <style>
   :root{
@@ -145,6 +178,14 @@
   .gc-2{ background: linear-gradient(145deg, #1F7A6C, #103a33); }
   .gc-3{ background: linear-gradient(145deg, #F2A65A, #8a5420); }
   .gc-4{ background: linear-gradient(145deg, #4a3a6c, #201533); }
+  .gallery-photo{
+    background-size: cover; background-position: center;
+    justify-content: flex-end; align-items: flex-start; text-align:left;
+    background-color: var(--night-2);
+  }
+  .gallery-photo span, .gallery-photo small{
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
   .gallery-note{
     font-size: 11.5px; color: rgba(245,239,224,0.4);
     text-align:center; margin-top:12px; font-style:italic;
@@ -210,13 +251,13 @@
 <main>
   <section class="gallery">
     <div class="section-title">Galerie</div>
-    <div class="gallery-grid">
+    <div class="gallery-grid" id="galerieGrid">
       <div class="gallery-card gc-1"><span>Événements</span><small>mariages, concerts, matchs</small></div>
       <div class="gallery-card gc-2"><span>Business</span><small>affiches, promos</small></div>
       <div class="gallery-card gc-3"><span>Portraits</span><small>famille, souvenirs</small></div>
       <div class="gallery-card gc-4"><span>Sur mesure</span><small>ton idée</small></div>
     </div>
-    <p class="gallery-note">Exemples à venir — Loïc ajoute bientôt ses vraies créations ici.</p>
+    <p class="gallery-note" id="galerieNote">Exemples à venir — Loïc ajoute bientôt ses vraies créations ici.</p>
   </section>
 
   <section class="order">
@@ -305,5 +346,5 @@
 </script>
 
 </body>
-  </html>
-                                                       
+            </html>
+            
