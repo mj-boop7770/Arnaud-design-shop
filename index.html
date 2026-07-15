@@ -314,6 +314,12 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .sub{ margin-top: 10px; font-size: 14px; color: rgba(245,239,224,0.65); max-width: 420px; margin-left:auto; margin-right:auto; }
+  .bureau-btn{
+    margin-top: 16px; padding: 10px 20px; border-radius: 20px;
+    border: 1.5px solid var(--line); background: rgba(245,239,224,0.06);
+    color: rgba(245,239,224,0.8); font-family: inherit; font-size: 13px;
+    font-weight:700; cursor:pointer;
+  }
   main{ max-width: 480px; margin: 0 auto; padding: 26px 20px 70px; }
 
   section.gallery{ margin-bottom: 34px; }
@@ -410,13 +416,13 @@
   }
   .add-gallery input[type=file]{ width:100%; font-size: 12.5px; color: rgba(245,239,224,0.6); }
   .add-gallery button{
-  width:100%; border:none; padding: 12px; border-radius: 10px; font-family: inherit; font-weight:700;
+    width:100%; border:none; padding: 12px; border-radius: 10px; font-family: inherit; font-weight:700;
     font-size: 13.5px; background: linear-gradient(135deg, var(--sunset), var(--gold)); color: var(--night);
     cursor:pointer; margin-top: 4px;
   }
   .filter-bar{ margin-bottom: 16px; }
   select#filterSelect{
-    width:100%; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--line);
+      width:100%; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--line);
     background: rgba(245,239,224,0.04); color: var(--cream); font-family: inherit; font-size: 13.5px;
   }
   #emptyState{ display:none; text-align:center; padding: 60px 20px; color: rgba(245,239,224,0.4); font-size: 14px; }
@@ -452,6 +458,7 @@
     <div class="eyebrow">Studio de création</div>
     <h1>Arnold &amp; Loïc</h1>
     <p class="sub">Des affiches et portraits sur mesure, faits à la main à partir de tes photos.</p>
+    <button id="espaceArtisteLink" class="bureau-btn">🔒 Bureau</button>
   </header>
 
   <main>
@@ -514,7 +521,6 @@
 
   <footer>
     Arnold &amp; Loïc Studio — créations originales, réponse rapide sur WhatsApp
-    <br><a href="#" id="espaceArtisteLink">espace artiste</a>
   </footer>
 </div>
 
@@ -582,4 +588,4 @@
 </div>
 
 </body>
-</html>
+</html
