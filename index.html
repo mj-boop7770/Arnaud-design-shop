@@ -38,8 +38,6 @@
     return json.data.url;
   }
 
-  /* ---------- CÔTÉ CLIENT ---------- */
-
   window.__submitCommande = async function(data, files){
     const statusEl = document.getElementById('formStatus');
     try{
@@ -66,43 +64,101 @@
     }
   };
 
-  const CATEGORIE_INFO = {
-    evenement: { label: "Événements" },
-    business:  { label: "Business" },
-    portrait:  { label: "Portraits" },
-    autre:     { label: "Sur mesure" }
+  const CATEGORIES = {
+    mariage:      "Mariages",
+    portrait:     "Portraits",
+    famille:      "Famille & Souvenirs",
+    entreprise:   "Entreprises",
+    publicite:    "Publicité & Affiches",
+    evenement:    "Concerts & Événements",
+    sport:        "Sport",
+    religieux:    "Religieux",
+    anniversaire: "Anniversaires",
+    hommage:      "Funérailles & Hommage",
+    mode:         "Mode & Beauté",
+    nature:       "Nature & Paysage",
+    tourisme:     "Tourisme",
+    animaux:      "Animaux",
+    musique:      "Pochettes d'album",
+    logo:         "Logos & Identité",
+    reseaux:      "Réseaux sociaux",
+    restauration: "Restauration de photos",
+    autre:        "Sur mesure"
   };
 
+  function populateCategorySelects(){
+    const opts = Object.entries(CATEGORIES).map(([val, label]) => `<option value="${val}">${label}</option>`).join('');
+    const typeSelect = document.getElementById('type');
+    const galSelect = document.getElementById('galCategorie');
+    if(typeSelect) typeSelect.innerHTML = `<option value="">Choisis...</option>` + opts;
+    if(galSelect) galSelect.innerHTML = opts;
+  }
+
+  let currentCategoryFilter = 'toutes';
+  let lastGalerieSnap = null;
+
+  function renderChips(){
+    const row = document.getElementById('chipsRow');
+    if(!row) return;
+    const allChip = `<button class="chip ${currentCategoryFilter === 'toutes' ? 'active' : ''}" data-cat="toutes">Toutes</button>`;
+    const catChips = Object.entries(CATEGORIES).map(([val, label]) =>
+      `<button class="chip ${currentCategoryFilter === val ? 'active' : ''}" data-cat="${val}">${label}</button>`
+    ).join('');
+    row.innerHTML = allChip + catChips;
+    row.querySelectorAll('.chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentCategoryFilter = btn.dataset.cat;
+        renderChips();
+        if(lastGalerieSnap) renderGalerie(lastGalerieSnap);
+      });
+    });
+  }
+
   function renderGalerie(snap){
+    lastGalerieSnap = snap;
     const grid = document.getElementById('galerieGrid');
     const note = document.getElementById('galerieNote');
     if(!grid) return;
     if(snap.empty){ if(note) note.style.display = 'block'; return; }
+
+    let docs = snap.docs;
+    if(currentCategoryFilter !== 'toutes'){
+      docs = docs.filter(d => d.data().categorie === currentCategoryFilter);
+    }
+
+    if(docs.length === 0){
+      grid.innerHTML = '';
+      if(note){ note.textContent = "Aucune œuvre dans cette catégorie pour l'instant."; note.style.display = 'block'; }
+      return;
+    }
     if(note) note.style.display = 'none';
-    grid.innerHTML = snap.docs.map(d => {
+
+    grid.innerHTML = docs.map(d => {
       const g = d.data();
-      const info = CATEGORIE_INFO[g.categorie] || CATEGORIE_INFO.autre;
+      const label = CATEGORIES[g.categorie] || CATEGORIES.autre;
       return `
         <div class="gallery-card gallery-photo" style="background-image:url('${g.url}')">
           <span>${g.titre || ''}</span>
-          <small>${info.label}</small>
+          <small>${label}</small>
         </div>
       `;
     }).join('');
   }
 
-  /* ---------- CÔTÉ BUREAU (Loïc) ---------- */
-
-  window.__submitGalerie = async function(titre, categorie, file){
+  window.__submitGalerie = async function(titre, categorie, files){
     const statusEl = document.getElementById('galerieStatus');
     try{
-      statusEl.textContent = "Envoi en cours...";
+      statusEl.textContent = `Envoi de ${files.length} photo(s) en cours...`;
       statusEl.className = "form-status pending";
-      const url = await uploadToImgBB(file);
-      await addDoc(collection(db, "galerie"), {
-        titre, categorie, url, createdAt: serverTimestamp()
-      });
-      statusEl.textContent = "✓ Œuvre ajoutée à la galerie.";
+      for(let i = 0; i < files.length; i++){
+        const url = await uploadToImgBB(files[i]);
+        const titreFinal = files.length > 1 ? `${titre} (${i+1})` : titre;
+        await addDoc(collection(db, "galerie"), {
+          titre: titreFinal, categorie, url, createdAt: serverTimestamp()
+        });
+        statusEl.textContent = `Envoi... ${i+1}/${files.length}`;
+      }
+      statusEl.textContent = `✓ ${files.length} œuvre(s) ajoutée(s) à la galerie.`;
       statusEl.className = "form-status success";
       document.getElementById('galerieForm').reset();
     }catch(err){
@@ -112,8 +168,8 @@
     }
   };
 
-  const TYPE_LABELS = { evenement: "Événement", business: "Business", portrait: "Portrait", autre: "Sur mesure" };
   const DELAI_LABELS = { normal: "Normal (48-72h)", urgent: "Urgent (24h)" };
+  const TYPE_LABELS = CATEGORIES;
   const STATUT_LABELS = { nouveau: "Nouveau", en_cours: "En cours", revision: "Révision", livre: "Livré" };
   const STATUT_ORDER = ["nouveau", "en_cours", "revision", "livre"];
 
@@ -192,9 +248,7 @@
     });
   }
 
-  /* ---------- BASCULE CLIENT ⇄ BUREAU (même lien) ---------- */
-
-  const SECRET_CODE = "LOIC2026"; // ⚠️ change ce code si tu veux
+  const SECRET_CODE = "LOIC2026";
 
   function showLock(){
     document.getElementById('lockScreen').classList.add('show');
@@ -227,6 +281,9 @@
   }
 
   window.addEventListener('DOMContentLoaded', () => {
+    populateCategorySelects();
+    renderChips();
+
     const q = query(collection(db, "galerie"), orderBy("createdAt", "desc"));
     onSnapshot(q, renderGalerie, err => console.error(err));
 
@@ -246,16 +303,15 @@
     document.getElementById('galSubmitBtn').addEventListener('click', () => {
       const titre = document.getElementById('galTitre').value.trim();
       const categorie = document.getElementById('galCategorie').value;
-      const file = document.getElementById('galPhoto').files[0];
-      if(!titre || !file){
-        document.getElementById('galerieStatus').textContent = "Remplis le titre et choisis une image.";
+      const files = Array.from(document.getElementById('galPhoto').files);
+      if(!titre || files.length === 0){
+        document.getElementById('galerieStatus').textContent = "Remplis le titre et choisis au moins une image.";
         document.getElementById('galerieStatus').className = "form-status error";
         return;
       }
-      window.__submitGalerie(titre, categorie, file);
+      window.__submitGalerie(titre, categorie, files);
     });
 
-    // Formulaire de commande
     const photosInput = document.getElementById('photos');
     const filePreview = document.getElementById('filePreview');
     let selectedFiles = [];
@@ -303,8 +359,6 @@
       radial-gradient(ellipse 900px 500px at 50% -10%, rgba(232,98,44,0.22), transparent 60%),
       linear-gradient(180deg, var(--night) 0%, var(--night-2) 100%);
   }
-
-  /* ---- Vue client ---- */
   header{ padding: 26px 20px 16px; text-align:center; border-bottom: 1px solid var(--line); }
   .eyebrow{ font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); font-weight:500; margin-bottom: 8px; }
   h1{
@@ -328,6 +382,20 @@
     margin-bottom: 14px; display:flex; align-items:center; gap:10px;
   }
   .section-title::after{ content:''; flex:1; height:1px; background: var(--line); }
+  .chips-row{
+    display:flex; gap:8px; overflow-x:auto; padding-bottom: 12px; margin-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chips-row::-webkit-scrollbar{ display:none; }
+  .chip{
+    flex-shrink:0; padding: 8px 14px; border-radius: 20px;
+    border: 1.5px solid var(--line); background: rgba(245,239,224,0.04);
+    color: rgba(245,239,224,0.7); font-family: inherit; font-size: 12.5px;
+    font-weight:700; cursor:pointer; white-space:nowrap;
+  }
+  .chip.active{
+    border-color: var(--sunset); background: rgba(232,98,44,0.18); color: var(--cream);
+  }
   .gallery-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .gallery-card{
     border-radius: 14px; aspect-ratio: 1; display:flex; flex-direction:column;
@@ -372,7 +440,6 @@
   footer{ text-align:center; padding: 20px; font-size: 11.5px; color: rgba(245,239,224,0.35); }
   footer a{ color: rgba(245,239,224,0.25); font-size: 10.5px; text-decoration:none; }
 
-  /* ---- Écran code secret ---- */
   .lock-screen{
     position:fixed; inset:0; z-index:200; background: rgba(20,20,43,0.92); backdrop-filter: blur(6px);
     display:none; flex-direction:column; align-items:center; justify-content:center; padding: 30px;
@@ -386,6 +453,11 @@
     text-align:center; letter-spacing: 0.1em; margin-bottom: 12px;
   }
   .lock-btn{
+    wwidth:100%; max-width: 280px; padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.05); color: var(--cream); font-family: inherit; font-size: 16px;
+    text-align:center; letter-spacing: 0.1em; margin-bottom: 12px;
+  }
+  .lock-btn{
     width:100%; max-width: 280px; border:none; padding: 14px; border-radius: 12px; font-family: inherit;
     font-weight:700; font-size: 14.5px; background: linear-gradient(135deg, var(--sunset), var(--gold));
     color: var(--night); cursor:pointer; margin-bottom: 10px;
@@ -393,7 +465,6 @@
   .lock-cancel{ background: none; border: none; color: rgba(245,239,224,0.4); font-size: 12.5px; font-family: inherit; cursor:pointer; }
   .lock-error{ margin-top: 10px; font-size: 12.5px; color: var(--sunset); min-height: 16px; }
 
-  /* ---- Vue bureau ---- */
   #bureauView{ display:none; }
   .bureau-header{
     padding: 22px 20px 16px; border-bottom: 1px solid var(--line);
@@ -405,7 +476,11 @@
     background: linear-gradient(135deg, var(--sunset), var(--gold)); color: var(--night); font-weight:700;
     font-size:13px; padding: 6px 12px; border-radius: 20px; min-width:28px; text-align:center;
   }
-  .back-link{ font-size: 12px; color: rgba(245,239,224,0.5); background:none; border:none; font-family:inherit; cursor:pointer; padding: 4px 0 12px; display:block; }
+  .back-btn{
+    width:100%; padding: 12px; border-radius: 10px; margin-bottom: 18px;
+    border: 1.5px solid var(--line); background: rgba(245,239,224,0.06);
+    color: var(--cream); font-family: inherit; font-size: 13.5px; font-weight:700; cursor:pointer;
+  }
   .add-gallery{ border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 22px; background: rgba(245,239,224,0.02); }
   .add-gallery-title{ font-size: 12.5px; font-weight:700; text-transform:uppercase; letter-spacing: 0.08em; color: var(--gold); margin-bottom: 12px; }
   .add-gallery .field{ margin-bottom: 10px; }
@@ -422,7 +497,7 @@
   }
   .filter-bar{ margin-bottom: 16px; }
   select#filterSelect{
-      width:100%; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--line);
+    width:100%; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--line);
     background: rgba(245,239,224,0.04); color: var(--cream); font-family: inherit; font-size: 13.5px;
   }
   #emptyState{ display:none; text-align:center; padding: 60px 20px; color: rgba(245,239,224,0.4); font-size: 14px; }
@@ -452,7 +527,6 @@
 </head>
 <body>
 
-<!-- ===== VUE CLIENT ===== -->
 <div id="clientView">
   <header>
     <div class="eyebrow">Studio de création</div>
@@ -464,6 +538,7 @@
   <main>
     <section class="gallery">
       <div class="section-title">Galerie</div>
+      <div class="chips-row" id="chipsRow"></div>
       <div class="gallery-grid" id="galerieGrid">
         <div class="gallery-card gc-1"><span>Événements</span><small>mariages, concerts, matchs</small></div>
         <div class="gallery-card gc-2"><span>Business</span><small>affiches, promos</small></div>
@@ -488,10 +563,6 @@
           <label>Type de commande</label>
           <select id="type" required>
             <option value="">Choisis...</option>
-            <option value="evenement">Événement (mariage, concert, promo)</option>
-            <option value="business">Business (affiche, publicité)</option>
-            <option value="portrait">Portrait / souvenir personnel</option>
-            <option value="autre">Autre / sur mesure</option>
           </select>
         </div>
         <div class="field">
@@ -524,7 +595,6 @@
   </footer>
 </div>
 
-<!-- ===== ÉCRAN CODE SECRET ===== -->
 <div class="lock-screen" id="lockScreen">
   <div class="lock-title">Espace artiste</div>
   <div class="lock-sub">Entre le code d'accès de Loïc</div>
@@ -534,7 +604,6 @@
   <div class="lock-error" id="lockError"></div>
 </div>
 
-<!-- ===== VUE BUREAU (Loïc) ===== -->
 <div id="bureauView">
   <div class="bureau-header">
     <div>
@@ -545,7 +614,7 @@
   </div>
 
   <main>
-    <button class="back-link" id="backBtn">← Retour à la page client</button>
+    <button class="back-btn" id="backBtn">← Retour à la page client</button>
 
     <div class="add-gallery">
       <div class="add-gallery-title">Ajouter à la galerie</div>
@@ -556,16 +625,11 @@
         </div>
         <div class="field">
           <label>Catégorie</label>
-          <select id="galCategorie" required>
-            <option value="evenement">Événements</option>
-            <option value="business">Business</option>
-            <option value="portrait">Portraits</option>
-            <option value="autre">Sur mesure</option>
-          </select>
+          <select id="galCategorie" required></select>
         </div>
         <div class="field">
-          <label>Image</label>
-          <input type="file" id="galPhoto" accept="image/*" required>
+          <label>Images (tu peux en choisir plusieurs)</label>
+          <input type="file" id="galPhoto" accept="image/*" multiple required>
         </div>
         <button id="galSubmitBtn" type="button">Publier dans la galerie</button>
         <div class="form-status" id="galerieStatus"></div>
@@ -588,4 +652,4 @@
 </div>
 
 </body>
-</html
+</html>
