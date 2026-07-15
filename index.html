@@ -7,13 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
 <script type="module">
-  // Firebase — Firestore uniquement (données des commandes)
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy
+    getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, doc, updateDoc
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  // Config du projet Firebase Arnold & Loïc (irabaruta-16f22)
   const firebaseConfig = {
     apiKey: "AIzaSyC3nA4EeIBUj9juovNCMWGvCepCwX-J2nI",
     authDomain: "irabaruta-16f22.firebaseapp.com",
@@ -26,7 +24,6 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 
-  // ImgBB — hébergement des photos, gratuit, sans carte bancaire
   const IMGBB_API_KEY = "8b1ab08e1a05b3f81bd13db1812db462";
 
   async function uploadToImgBB(file){
@@ -41,31 +38,23 @@
     return json.data.url;
   }
 
+  /* ---------- CÔTÉ CLIENT ---------- */
+
   window.__submitCommande = async function(data, files){
     const statusEl = document.getElementById('formStatus');
     try{
       statusEl.textContent = "Envoi en cours...";
       statusEl.className = "form-status pending";
-
-      // Upload des photos sources vers ImgBB
       const urls = [];
       for(const file of files){
         const url = await uploadToImgBB(file);
         urls.push(url);
       }
-
-      // Écriture de la commande dans Firestore
       await addDoc(collection(db, "commandes"), {
-        nom: data.nom,
-        contact: data.contact,
-        type: data.type,
-        description: data.description,
-        delai: data.delai,
-        photos: urls,
-        statut: "nouveau",
-        createdAt: serverTimestamp()
+        nom: data.nom, contact: data.contact, type: data.type,
+        description: data.description, delai: data.delai,
+        photos: urls, statut: "nouveau", createdAt: serverTimestamp()
       });
-
       statusEl.textContent = "✓ Commande envoyée ! Loïc te contacte bientôt sur WhatsApp.";
       statusEl.className = "form-status success";
       document.getElementById('commandeForm').reset();
@@ -88,10 +77,7 @@
     const grid = document.getElementById('galerieGrid');
     const note = document.getElementById('galerieNote');
     if(!grid) return;
-    if(snap.empty){
-      if(note) note.style.display = 'block';
-      return;
-    }
+    if(snap.empty){ if(note) note.style.display = 'block'; return; }
     if(note) note.style.display = 'none';
     grid.innerHTML = snap.docs.map(d => {
       const g = d.data();
@@ -105,72 +91,242 @@
     }).join('');
   }
 
+  /* ---------- CÔTÉ BUREAU (Loïc) ---------- */
+
+  window.__submitGalerie = async function(titre, categorie, file){
+    const statusEl = document.getElementById('galerieStatus');
+    try{
+      statusEl.textContent = "Envoi en cours...";
+      statusEl.className = "form-status pending";
+      const url = await uploadToImgBB(file);
+      await addDoc(collection(db, "galerie"), {
+        titre, categorie, url, createdAt: serverTimestamp()
+      });
+      statusEl.textContent = "✓ Œuvre ajoutée à la galerie.";
+      statusEl.className = "form-status success";
+      document.getElementById('galerieForm').reset();
+    }catch(err){
+      console.error(err);
+      statusEl.textContent = "Erreur d'envoi — réessaie.";
+      statusEl.className = "form-status error";
+    }
+  };
+
+  const TYPE_LABELS = { evenement: "Événement", business: "Business", portrait: "Portrait", autre: "Sur mesure" };
+  const DELAI_LABELS = { normal: "Normal (48-72h)", urgent: "Urgent (24h)" };
+  const STATUT_LABELS = { nouveau: "Nouveau", en_cours: "En cours", revision: "Révision", livre: "Livré" };
+  const STATUT_ORDER = ["nouveau", "en_cours", "revision", "livre"];
+
+  function formatDate(ts){
+    if(!ts || !ts.toDate) return "à l'instant";
+    return ts.toDate().toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  }
+  function whatsappLink(contact){
+    const clean = contact.replace(/[^0-9+]/g, '');
+    return `https://wa.me/${clean.replace('+','')}`;
+  }
+
+  let dashboardStarted = false;
+  let lastSnap = null;
+
+  function renderCommandes(snap){
+    const list = document.getElementById('list');
+    const emptyState = document.getElementById('emptyState');
+    const countBadge = document.getElementById('countBadge');
+    if(snap.empty){
+      list.innerHTML = ''; emptyState.style.display = 'block'; countBadge.textContent = '0'; return;
+    }
+    emptyState.style.display = 'none';
+    const filter = document.getElementById('filterSelect').value;
+    let docs = snap.docs;
+    if(filter !== 'toutes') docs = docs.filter(d => (d.data().statut || 'nouveau') === filter);
+    countBadge.textContent = docs.length;
+
+    list.innerHTML = docs.map(d => {
+      const c = d.data();
+      const id = d.id;
+      const statut = c.statut || 'nouveau';
+      const photos = (c.photos || []).map(url => `<img src="${url}" onclick="window.open('${url}','_blank')">`).join('');
+      const statutButtons = STATUT_ORDER.map(s =>
+        `<button class="statut-btn ${s === statut ? 'active' : ''}" data-id="${id}" data-statut="${s}">${STATUT_LABELS[s]}</button>`
+      ).join('');
+      return `
+        <div class="card">
+          <div class="card-top">
+            <div>
+              <div class="card-name">${c.nom || 'Sans nom'}</div>
+              <div class="card-meta">${TYPE_LABELS[c.type] || c.type} · ${DELAI_LABELS[c.delai] || ''}</div>
+            </div>
+            <span class="badge-statut statut-${statut}">${STATUT_LABELS[statut]}</span>
+          </div>
+          <p class="card-desc">${c.description || ''}</p>
+          ${photos ? `<div class="photo-row">${photos}</div>` : ''}
+          <div class="card-footer">
+            <span class="card-date">${formatDate(c.createdAt)}</span>
+            <a class="wa-link" href="${whatsappLink(c.contact || '')}" target="_blank">WhatsApp →</a>
+          </div>
+          <div class="statut-row">${statutButtons}</div>
+        </div>
+      `;
+    }).join('');
+
+    document.querySelectorAll('.statut-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try{ await updateDoc(doc(db, "commandes", btn.dataset.id), { statut: btn.dataset.statut }); }
+        catch(err){ console.error(err); alert("Erreur de mise à jour."); }
+      });
+    });
+  }
+
+  function initDashboard(){
+    if(dashboardStarted) return;
+    dashboardStarted = true;
+    const q = query(collection(db, "commandes"), orderBy("createdAt", "desc"));
+    onSnapshot(q, snap => { lastSnap = snap; renderCommandes(snap); }, err => {
+      console.error(err);
+      document.getElementById('emptyState').textContent = "Erreur de connexion à Firestore.";
+      document.getElementById('emptyState').style.display = 'block';
+    });
+    document.getElementById('filterSelect').addEventListener('change', () => {
+      if(lastSnap) renderCommandes(lastSnap);
+    });
+  }
+
+  /* ---------- BASCULE CLIENT ⇄ BUREAU (même lien) ---------- */
+
+  const SECRET_CODE = "LOIC2026"; // ⚠️ change ce code si tu veux
+
+  function showLock(){
+    document.getElementById('lockScreen').classList.add('show');
+    document.getElementById('lockInput').value = '';
+    document.getElementById('lockError').textContent = '';
+    document.getElementById('lockInput').focus();
+  }
+  function hideLock(){
+    document.getElementById('lockScreen').classList.remove('show');
+  }
+  function openBureau(){
+    document.getElementById('clientView').style.display = 'none';
+    document.getElementById('bureauView').style.display = 'block';
+    hideLock();
+    initDashboard();
+  }
+  function backToClient(){
+    document.getElementById('bureauView').style.display = 'none';
+    document.getElementById('clientView').style.display = 'block';
+  }
+
+  function checkCode(){
+    const val = document.getElementById('lockInput').value.trim();
+    if(val === SECRET_CODE){
+      sessionStorage.setItem('arnoldloic_unlocked', '1');
+      openBureau();
+    }else{
+      document.getElementById('lockError').textContent = "Code incorrect.";
+    }
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     const q = query(collection(db, "galerie"), orderBy("createdAt", "desc"));
     onSnapshot(q, renderGalerie, err => console.error(err));
+
+    document.getElementById('espaceArtisteLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      if(sessionStorage.getItem('arnoldloic_unlocked') === '1'){
+        openBureau();
+      }else{
+        showLock();
+      }
+    });
+    document.getElementById('lockBtn').addEventListener('click', checkCode);
+    document.getElementById('lockCancel').addEventListener('click', hideLock);
+    document.getElementById('lockInput').addEventListener('keydown', e => { if(e.key === 'Enter') checkCode(); });
+    document.getElementById('backBtn').addEventListener('click', backToClient);
+
+    document.getElementById('galSubmitBtn').addEventListener('click', () => {
+      const titre = document.getElementById('galTitre').value.trim();
+      const categorie = document.getElementById('galCategorie').value;
+      const file = document.getElementById('galPhoto').files[0];
+      if(!titre || !file){
+        document.getElementById('galerieStatus').textContent = "Remplis le titre et choisis une image.";
+        document.getElementById('galerieStatus').className = "form-status error";
+        return;
+      }
+      window.__submitGalerie(titre, categorie, file);
+    });
+
+    // Formulaire de commande
+    const photosInput = document.getElementById('photos');
+    const filePreview = document.getElementById('filePreview');
+    let selectedFiles = [];
+    photosInput.addEventListener('change', () => {
+      selectedFiles = Array.from(photosInput.files);
+      filePreview.innerHTML = '';
+      selectedFiles.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = document.createElement('img');
+          img.src = e.target.result;
+          filePreview.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+    document.getElementById('submitBtn').addEventListener('click', () => {
+      const nom = document.getElementById('nom').value.trim();
+      const contact = document.getElementById('contact').value.trim();
+      const type = document.getElementById('type').value;
+      const description = document.getElementById('description').value.trim();
+      const delai = document.getElementById('delai').value;
+      if(!nom || !contact || !type || !description){
+        document.getElementById('formStatus').textContent = "Remplis tous les champs obligatoires.";
+        document.getElementById('formStatus').className = "form-status error";
+        return;
+      }
+      window.__submitCommande({ nom, contact, type, description, delai }, selectedFiles);
+    });
   });
 </script>
 <style>
   :root{
-    --night: #14142B;
-    --night-2: #1E1E42;
-    --sunset: #E8622C;
-    --gold: #F2A65A;
-    --teal: #1F7A6C;
-    --cream: #F5EFE0;
-    --line: rgba(245,239,224,0.14);
+    --night: #14142B; --night-2: #1E1E42;
+    --sunset: #E8622C; --gold: #F2A65A; --teal: #1F7A6C;
+    --cream: #F5EFE0; --line: rgba(245,239,224,0.14);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{
-    background: var(--night);
-    color: var(--cream);
-    font-family: 'Space Grotesk', sans-serif;
-    min-height:100vh;
+    background: var(--night); color: var(--cream);
+    font-family: 'Space Grotesk', sans-serif; min-height:100vh;
   }
   body{
     background:
       radial-gradient(ellipse 900px 500px at 50% -10%, rgba(232,98,44,0.22), transparent 60%),
       linear-gradient(180deg, var(--night) 0%, var(--night-2) 100%);
   }
-  header{
-    padding: 26px 20px 16px;
-    text-align:center;
-    border-bottom: 1px solid var(--line);
-  }
-  .eyebrow{
-    font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase;
-    color: var(--gold); font-weight:500; margin-bottom: 8px;
-  }
+
+  /* ---- Vue client ---- */
+  header{ padding: 26px 20px 16px; text-align:center; border-bottom: 1px solid var(--line); }
+  .eyebrow{ font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); font-weight:500; margin-bottom: 8px; }
   h1{
-    font-family: 'Anton', sans-serif; font-weight:400;
-    font-size: clamp(30px, 8vw, 44px); line-height: 0.95;
+    font-family: 'Anton', sans-serif; font-weight:400; font-size: clamp(30px, 8vw, 44px); line-height: 0.95;
     text-transform: uppercase;
     background: linear-gradient(180deg, var(--cream) 40%, var(--gold) 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .sub{
-    margin-top: 10px; font-size: 14px; color: rgba(245,239,224,0.65);
-    max-width: 420px; margin-left:auto; margin-right:auto;
-  }
+  .sub{ margin-top: 10px; font-size: 14px; color: rgba(245,239,224,0.65); max-width: 420px; margin-left:auto; margin-right:auto; }
   main{ max-width: 480px; margin: 0 auto; padding: 26px 20px 70px; }
 
-  /* Galerie */
   section.gallery{ margin-bottom: 34px; }
   .section-title{
-    font-size: 11.5px; letter-spacing: 0.16em; text-transform: uppercase;
-    color: rgba(245,239,224,0.5); margin-bottom: 14px;
-    display:flex; align-items:center; gap:10px;
+    font-size: 11.5px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(245,239,224,0.5);
+    margin-bottom: 14px; display:flex; align-items:center; gap:10px;
   }
   .section-title::after{ content:''; flex:1; height:1px; background: var(--line); }
-  .gallery-grid{
-    display:grid; grid-template-columns: 1fr 1fr; gap: 10px;
-  }
+  .gallery-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .gallery-card{
-    border-radius: 14px; aspect-ratio: 1;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; padding: 14px;
-    border: 1px solid var(--line);
-    position:relative; overflow:hidden;
+    border-radius: 14px; aspect-ratio: 1; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding: 14px;
+    border: 1px solid var(--line); position:relative; overflow:hidden;
   }
   .gallery-card span{ font-weight:700; font-size:14px; z-index:1; }
   .gallery-card small{ font-size:11px; color:rgba(245,239,224,0.7); z-index:1; margin-top:4px; }
@@ -178,176 +334,252 @@
   .gc-2{ background: linear-gradient(145deg, #1F7A6C, #103a33); }
   .gc-3{ background: linear-gradient(145deg, #F2A65A, #8a5420); }
   .gc-4{ background: linear-gradient(145deg, #4a3a6c, #201533); }
-  .gallery-photo{
-    background-size: cover; background-position: center;
-    justify-content: flex-end; align-items: flex-start; text-align:left;
-    background-color: var(--night-2);
-  }
-  .gallery-photo span, .gallery-photo small{
-    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
-  }
-  .gallery-note{
-    font-size: 11.5px; color: rgba(245,239,224,0.4);
-    text-align:center; margin-top:12px; font-style:italic;
-  }
+  .gallery-photo{ background-size: cover; background-position: center; justify-content: flex-end; align-items: flex-start; text-align:left; background-color: var(--night-2); }
+  .gallery-photo span, .gallery-photo small{ text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  .gallery-note{ font-size: 11.5px; color: rgba(245,239,224,0.4); text-align:center; margin-top:12px; font-style:italic; }
 
-  /* Formulaire */
   .field{ margin-bottom: 16px; }
-  label{
-    display:block; font-size: 12.5px; font-weight:700;
-    margin-bottom: 7px; color: rgba(245,239,224,0.85);
-  }
+  label{ display:block; font-size: 12.5px; font-weight:700; margin-bottom: 7px; color: rgba(245,239,224,0.85); }
   input[type=text], input[type=tel], textarea, select{
-    width:100%; padding: 13px 14px; border-radius: 12px;
-    border: 1.5px solid var(--line);
-    background: rgba(245,239,224,0.04);
-    color: var(--cream); font-family: inherit; font-size: 14.5px;
+    width:100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.04); color: var(--cream); font-family: inherit; font-size: 14.5px;
   }
   select{ appearance:none; }
   textarea{ resize: vertical; min-height: 80px; }
   input::placeholder, textarea::placeholder{ color: rgba(245,239,224,0.35); }
-
   .file-drop{
-    border: 1.5px dashed rgba(245,239,224,0.3);
-    border-radius: 12px; padding: 18px; text-align:center;
+    border: 1.5px dashed rgba(245,239,224,0.3); border-radius: 12px; padding: 18px; text-align:center;
     cursor:pointer; font-size: 13.5px; color: rgba(245,239,224,0.6);
   }
   .file-drop input{ display:none; }
-  #filePreview{
-    display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;
-  }
-  #filePreview img{
-    width:56px; height:56px; object-fit:cover; border-radius:8px;
-    border: 1px solid var(--line);
-  }
-
+  #filePreview{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  #filePreview img{ width:56px; height:56px; object-fit:cover; border-radius:8px; border: 1px solid var(--line); }
   button.submit-btn{
-    width:100%; border:none; padding: 16px 12px; border-radius: 12px;
-    font-family: inherit; font-weight:700; font-size: 15px;
-    background: linear-gradient(135deg, var(--sunset), var(--gold));
+    width:100%; border:none; padding: 16px 12px; border-radius: 12px; font-family: inherit;
+    font-weight:700; font-size: 15px; background: linear-gradient(135deg, var(--sunset), var(--gold));
     color: var(--night); cursor:pointer; margin-top: 6px;
   }
-  .form-status{
-    margin-top: 12px; font-size: 13px; text-align:center; min-height: 18px;
-  }
+  .form-status{ margin-top: 12px; font-size: 13px; text-align:center; min-height: 18px; }
   .form-status.pending{ color: var(--gold); }
   .form-status.success{ color: var(--teal); font-weight:700; }
   .form-status.error{ color: var(--sunset); font-weight:700; }
+  footer{ text-align:center; padding: 20px; font-size: 11.5px; color: rgba(245,239,224,0.35); }
+  footer a{ color: rgba(245,239,224,0.25); font-size: 10.5px; text-decoration:none; }
 
-  footer{
-    text-align:center; padding: 20px; font-size: 11.5px;
-    color: rgba(245,239,224,0.35);
+  /* ---- Écran code secret ---- */
+  .lock-screen{
+    position:fixed; inset:0; z-index:200; background: rgba(20,20,43,0.92); backdrop-filter: blur(6px);
+    display:none; flex-direction:column; align-items:center; justify-content:center; padding: 30px;
   }
+  .lock-screen.show{ display:flex; }
+  .lock-title{ font-family:'Anton', sans-serif; font-weight:400; font-size:24px; text-transform:uppercase; margin-bottom: 6px; text-align:center; }
+  .lock-sub{ font-size: 13px; color: rgba(245,239,224,0.5); margin-bottom: 22px; text-align:center; }
+  .lock-input{
+    width:100%; max-width: 280px; padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.05); color: var(--cream); font-family: inherit; font-size: 16px;
+    text-align:center; letter-spacing: 0.1em; margin-bottom: 12px;
+  }
+  .lock-btn{
+    width:100%; max-width: 280px; border:none; padding: 14px; border-radius: 12px; font-family: inherit;
+    font-weight:700; font-size: 14.5px; background: linear-gradient(135deg, var(--sunset), var(--gold));
+    color: var(--night); cursor:pointer; margin-bottom: 10px;
+  }
+  .lock-cancel{ background: none; border: none; color: rgba(245,239,224,0.4); font-size: 12.5px; font-family: inherit; cursor:pointer; }
+  .lock-error{ margin-top: 10px; font-size: 12.5px; color: var(--sunset); min-height: 16px; }
+
+  /* ---- Vue bureau ---- */
+  #bureauView{ display:none; }
+  .bureau-header{
+    padding: 22px 20px 16px; border-bottom: 1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .header-title{ font-family:'Anton', sans-serif; font-weight:400; font-size:22px; text-transform:uppercase; letter-spacing:0.02em; }
+  .header-sub{ font-size:11.5px; color:rgba(245,239,224,0.5); margin-top:2px; }
+  .count-pill{
+    background: linear-gradient(135deg, var(--sunset), var(--gold)); color: var(--night); font-weight:700;
+    font-size:13px; padding: 6px 12px; border-radius: 20px; min-width:28px; text-align:center;
+  }
+  .back-link{ font-size: 12px; color: rgba(245,239,224,0.5); background:none; border:none; font-family:inherit; cursor:pointer; padding: 4px 0 12px; display:block; }
+  .add-gallery{ border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 22px; background: rgba(245,239,224,0.02); }
+  .add-gallery-title{ font-size: 12.5px; font-weight:700; text-transform:uppercase; letter-spacing: 0.08em; color: var(--gold); margin-bottom: 12px; }
+  .add-gallery .field{ margin-bottom: 10px; }
+  .add-gallery label{ display:block; font-size: 12px; font-weight:700; margin-bottom: 5px; color: rgba(245,239,224,0.75); }
+  .add-gallery input[type=text], .add-gallery select{
+    width:100%; padding: 10px 12px; border-radius: 9px; border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.04); color: var(--cream); font-family: inherit; font-size: 13.5px;
+  }
+  .add-gallery input[type=file]{ width:100%; font-size: 12.5px; color: rgba(245,239,224,0.6); }
+  .add-gallery button{
+  width:100%; border:none; padding: 12px; border-radius: 10px; font-family: inherit; font-weight:700;
+    font-size: 13.5px; background: linear-gradient(135deg, var(--sunset), var(--gold)); color: var(--night);
+    cursor:pointer; margin-top: 4px;
+  }
+  .filter-bar{ margin-bottom: 16px; }
+  select#filterSelect{
+    width:100%; padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--line);
+    background: rgba(245,239,224,0.04); color: var(--cream); font-family: inherit; font-size: 13.5px;
+  }
+  #emptyState{ display:none; text-align:center; padding: 60px 20px; color: rgba(245,239,224,0.4); font-size: 14px; }
+  .card{ border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; background: rgba(245,239,224,0.02); }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .card-name{ font-weight:700; font-size: 15.5px; }
+  .card-meta{ font-size: 12px; color: rgba(245,239,224,0.5); margin-top:2px; }
+  .badge-statut{ font-size: 10.5px; font-weight:700; text-transform:uppercase; padding: 5px 10px; border-radius: 20px; white-space:nowrap; }
+  .statut-nouveau{ background: rgba(232,98,44,0.2); color: var(--gold); }
+  .statut-en_cours{ background: rgba(242,166,90,0.2); color: var(--gold); }
+  .statut-revision{ background: rgba(31,122,108,0.2); color: var(--teal); }
+  .statut-livre{ background: rgba(31,122,108,0.35); color: var(--teal); }
+  .card-desc{ font-size: 13.5px; color: rgba(245,239,224,0.8); margin-top: 10px; line-height:1.4; }
+  .photo-row{ display:flex; gap:8px; margin-top:12px; overflow-x:auto; padding-bottom:2px; }
+  .photo-row img{ width:64px; height:64px; object-fit:cover; border-radius:10px; border: 1px solid var(--line); flex-shrink:0; cursor:pointer; }
+  .card-footer{ display:flex; justify-content:space-between; align-items:center; margin-top: 12px; font-size: 12px; }
+  .card-date{ color: rgba(245,239,224,0.4); }
+  .wa-link{ color: var(--teal); font-weight:700; text-decoration:none; }
+  .statut-row{ display:flex; gap:6px; margin-top: 12px; flex-wrap:wrap; }
+  .statut-btn{
+    flex:1; min-width: 70px; padding: 9px 6px; border-radius: 9px; border: 1.5px solid var(--line);
+    background: transparent; color: rgba(245,239,224,0.6); font-family: inherit; font-size: 11.5px;
+    font-weight:700; cursor:pointer;
+  }
+  .statut-btn.active{ border-color: var(--sunset); background: rgba(232,98,44,0.15); color: var(--cream); }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="eyebrow">Studio de création</div>
-  <h1>Arnold &amp; Loïc</h1>
-  <p class="sub">Des affiches et portraits sur mesure, faits à la main à partir de tes photos.</p>
-</header>
+<!-- ===== VUE CLIENT ===== -->
+<div id="clientView">
+  <header>
+    <div class="eyebrow">Studio de création</div>
+    <h1>Arnold &amp; Loïc</h1>
+    <p class="sub">Des affiches et portraits sur mesure, faits à la main à partir de tes photos.</p>
+  </header>
 
-<main>
-  <section class="gallery">
-    <div class="section-title">Galerie</div>
-    <div class="gallery-grid" id="galerieGrid">
-      <div class="gallery-card gc-1"><span>Événements</span><small>mariages, concerts, matchs</small></div>
-      <div class="gallery-card gc-2"><span>Business</span><small>affiches, promos</small></div>
-      <div class="gallery-card gc-3"><span>Portraits</span><small>famille, souvenirs</small></div>
-      <div class="gallery-card gc-4"><span>Sur mesure</span><small>ton idée</small></div>
+  <main>
+    <section class="gallery">
+      <div class="section-title">Galerie</div>
+      <div class="gallery-grid" id="galerieGrid">
+        <div class="gallery-card gc-1"><span>Événements</span><small>mariages, concerts, matchs</small></div>
+        <div class="gallery-card gc-2"><span>Business</span><small>affiches, promos</small></div>
+        <div class="gallery-card gc-3"><span>Portraits</span><small>famille, souvenirs</small></div>
+        <div class="gallery-card gc-4"><span>Sur mesure</span><small>ton idée</small></div>
+      </div>
+      <p class="gallery-note" id="galerieNote">Exemples à venir — Loïc ajoute bientôt ses vraies créations ici.</p>
+    </section>
+
+    <section class="order">
+      <div class="section-title">Passer commande</div>
+      <form id="commandeForm" onsubmit="return false;">
+        <div class="field">
+          <label>Ton nom</label>
+          <input type="text" id="nom" placeholder="Ton nom complet" required>
+        </div>
+        <div class="field">
+          <label>Contact WhatsApp</label>
+          <input type="tel" id="contact" placeholder="+257 ..." required>
+        </div>
+        <div class="field">
+          <label>Type de commande</label>
+          <select id="type" required>
+            <option value="">Choisis...</option>
+            <option value="evenement">Événement (mariage, concert, promo)</option>
+            <option value="business">Business (affiche, publicité)</option>
+            <option value="portrait">Portrait / souvenir personnel</option>
+            <option value="autre">Autre / sur mesure</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Décris ton idée</label>
+          <textarea id="description" placeholder="Ambiance voulue, texte à inclure, occasion..." required></textarea>
+        </div>
+        <div class="field">
+          <label>Délai souhaité</label>
+          <select id="delai">
+            <option value="normal">Normal (48-72h)</option>
+            <option value="urgent">Urgent (24h)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tes photos</label>
+          <label class="file-drop">
+            <input type="file" id="photos" accept="image/*" multiple>
+            Touche pour ajouter tes photos
+          </label>
+          <div id="filePreview"></div>
+        </div>
+        <button class="submit-btn" id="submitBtn">Envoyer ma commande</button>
+        <div class="form-status" id="formStatus"></div>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    Arnold &amp; Loïc Studio — créations originales, réponse rapide sur WhatsApp
+    <br><a href="#" id="espaceArtisteLink">espace artiste</a>
+  </footer>
+</div>
+
+<!-- ===== ÉCRAN CODE SECRET ===== -->
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-title">Espace artiste</div>
+  <div class="lock-sub">Entre le code d'accès de Loïc</div>
+  <input type="password" class="lock-input" id="lockInput" placeholder="Code secret" inputmode="text">
+  <button class="lock-btn" id="lockBtn">Entrer</button>
+  <button class="lock-cancel" id="lockCancel">Annuler</button>
+  <div class="lock-error" id="lockError"></div>
+</div>
+
+<!-- ===== VUE BUREAU (Loïc) ===== -->
+<div id="bureauView">
+  <div class="bureau-header">
+    <div>
+      <div class="header-title">Bureau</div>
+      <div class="header-sub">Arnold &amp; Loïc Studio</div>
     </div>
-    <p class="gallery-note" id="galerieNote">Exemples à venir — Loïc ajoute bientôt ses vraies créations ici.</p>
-  </section>
+    <span class="count-pill" id="countBadge">0</span>
+  </div>
 
-  <section class="order">
-    <div class="section-title">Passer commande</div>
-    <form id="commandeForm" onsubmit="return false;">
-      <div class="field">
-        <label>Ton nom</label>
-        <input type="text" id="nom" placeholder="Ton nom complet" required>
-      </div>
-      <div class="field">
-        <label>Contact WhatsApp</label>
-        <input type="tel" id="contact" placeholder="+257 ..." required>
-      </div>
-      <div class="field">
-        <label>Type de commande</label>
-        <select id="type" required>
-          <option value="">Choisis...</option>
-          <option value="evenement">Événement (mariage, concert, promo)</option>
-          <option value="business">Business (affiche, publicité)</option>
-          <option value="portrait">Portrait / souvenir personnel</option>
-          <option value="autre">Autre / sur mesure</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Décris ton idée</label>
-        <textarea id="description" placeholder="Ambiance voulue, texte à inclure, occasion..." required></textarea>
-      </div>
-      <div class="field">
-        <label>Délai souhaité</label>
-        <select id="delai">
-          <option value="normal">Normal (48-72h)</option>
-          <option value="urgent">Urgent (24h)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Tes photos</label>
-        <label class="file-drop">
-          <input type="file" id="photos" accept="image/*" multiple>
-          Touche pour ajouter tes photos
-        </label>
-        <div id="filePreview"></div>
-      </div>
+  <main>
+    <button class="back-link" id="backBtn">← Retour à la page client</button>
 
-      <button class="submit-btn" id="submitBtn">Envoyer ma commande</button>
-      <div class="form-status" id="formStatus"></div>
-    </form>
-  </section>
-</main>
+    <div class="add-gallery">
+      <div class="add-gallery-title">Ajouter à la galerie</div>
+      <form id="galerieForm" onsubmit="return false;">
+        <div class="field">
+          <label>Titre de l'œuvre</label>
+          <input type="text" id="galTitre" placeholder="Ex: Coucher sur le lac" required>
+        </div>
+        <div class="field">
+          <label>Catégorie</label>
+          <select id="galCategorie" required>
+            <option value="evenement">Événements</option>
+            <option value="business">Business</option>
+            <option value="portrait">Portraits</option>
+            <option value="autre">Sur mesure</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Image</label>
+          <input type="file" id="galPhoto" accept="image/*" required>
+        </div>
+        <button id="galSubmitBtn" type="button">Publier dans la galerie</button>
+        <div class="form-status" id="galerieStatus"></div>
+      </form>
+    </div>
 
-<footer>
-  Arnold &amp; Loïc Studio — créations originales, réponse rapide sur WhatsApp
-  <br><a href="bureau.html" style="color:rgba(245,239,224,0.25); font-size:10.5px; text-decoration:none;">espace artiste</a>
-</footer>
+    <div class="filter-bar">
+      <select id="filterSelect">
+        <option value="toutes">Toutes les commandes</option>
+        <option value="nouveau">Nouveau</option>
+        <option value="en_cours">En cours</option>
+        <option value="revision">Révision</option>
+        <option value="livre">Livré</option>
+      </select>
+    </div>
 
-<script>
-  const photosInput = document.getElementById('photos');
-  const filePreview = document.getElementById('filePreview');
-  let selectedFiles = [];
-
-  photosInput.addEventListener('change', () => {
-    selectedFiles = Array.from(photosInput.files);
-    filePreview.innerHTML = '';
-    selectedFiles.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = e => {
-        const img = document.createElement('img');
-        img.src = e.target.result;
-        filePreview.appendChild(img);
-      };
-      reader.readAsDataURL(file);
-    });
-  });
-
-  document.getElementById('submitBtn').addEventListener('click', () => {
-    const nom = document.getElementById('nom').value.trim();
-    const contact = document.getElementById('contact').value.trim();
-    const type = document.getElementById('type').value;
-    const description = document.getElementById('description').value.trim();
-    const delai = document.getElementById('delai').value;
-
-    if(!nom || !contact || !type || !description){
-      document.getElementById('formStatus').textContent = "Remplis tous les champs obligatoires.";
-      document.getElementById('formStatus').className = "form-status error";
-      return;
-    }
-
-    window.__submitCommande({ nom, contact, type, description, delai }, selectedFiles);
-  });
-</script>
+    <div id="emptyState">Aucune commande pour le moment.</div>
+    <div id="list"></div>
+  </main>
+</div>
 
 </body>
-  </html>
-  
+</html>
